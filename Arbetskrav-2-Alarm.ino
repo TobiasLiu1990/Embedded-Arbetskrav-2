@@ -296,7 +296,8 @@ void printInterval(unsigned long currentMillis) {
   unsigned long printTime = currentMillis - previousTimeForDateAndTime;
 
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
-    printDateTime(Rtc.GetDateTime());
+    RtcDateTime date = Rtc.GetDateTime();
+    printDateTime(date);
     Serial.println();
     previousTimeForDateAndTime = currentMillis;
   }
