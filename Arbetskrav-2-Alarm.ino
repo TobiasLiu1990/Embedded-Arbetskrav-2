@@ -8,6 +8,7 @@
     Ultrasonic sensor (HC-SR04)
     Buzzer
     RGB-LED
+    220 resistor
 
   References:
     Adafruit_GFX - https://www.arduino.cc/reference/en/libraries/adafruit-gfx-library/
@@ -80,7 +81,7 @@ const char keys[rows][cols] = {
 //Buzzer
 #define SPEAKER_PIN A2
 int alarmMelody[] = { NOTE_C4, NOTE_G3 };
-int noteDuration = 350;
+int noteDuration = 250;
 
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
@@ -127,7 +128,8 @@ bool wasError(const char* errorTopic = "") {
 
 bool printWarning = true;
 
-unsigned long previousTimeForAlarmTriggered;
+unsigned long timeWhenAlarmTriggered;
+unsigned long elapsedMillis;
 const unsigned long pinEntryTime = 2000;  //should be 10 seconds
 
 unsigned long previousTimeForDateAndTime = 0;
@@ -229,25 +231,19 @@ void loop() {
       printWarning = false;
     }
 
-    previousTimeForAlarmTriggered = millis();
-    unsigned long elapsedMillis = previousTimeForAlarmTriggered - currentMillis;  //Seems like there is a delay of 129ms before calculating from 0.
-
+    getElapsedAlarmTriggertime(currentMillis);
+    
     while (elapsedMillis < pinEntryTime) {  //You have 10s until the real alarm goes off to enter right pin
-      previousTimeForAlarmTriggered = millis();
-      elapsedMillis = previousTimeForAlarmTriggered - currentMillis;
-      Serial.print("Current millis: ");
-      Serial.println(previousTimeForAlarmTriggered);
+      getElapsedAlarmTriggertime(currentMillis);
 
-      Serial.print("Duration: ");
+      Serial.print("Elapsed time: ");
       Serial.println(elapsedMillis);
 
       NewTone(SPEAKER_PIN, 500);
-      delay(1000);
       //ADD CODE LATER FOR KEYPAD - ENTER PIN HERE
     }
-    while (elapsedMillis > pinEntryTime) {
+    while (elapsedMillis >= pinEntryTime) {
       Serial.println("ALAAAARM");
-      delay(100);
 
       if (printWarning) {
         printAlarmMessage();
@@ -256,7 +252,6 @@ void loop() {
       }
 
       playAlarm();
-      //PLAY ACTUAL LOUD ALARM
       //must enter master pin to shut off
     }
   } else {
@@ -265,6 +260,10 @@ void loop() {
   }
 }
 
+void getElapsedAlarmTriggertime(unsigned long currentMillis) {
+  timeWhenAlarmTriggered = millis();
+  elapsedMillis = timeWhenAlarmTriggered - currentMillis;
+}
 
 void resetTftScreen(uint16_t color) {
   tft.setCursor(0, 0);
