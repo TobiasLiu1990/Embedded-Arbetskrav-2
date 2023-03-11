@@ -126,9 +126,9 @@ bool wasError(const char* errorTopic = "") {
 }
 
 bool printWarning = true;
-//unsigned long currentMillis;
-unsigned long currentMillisForAlarm;
-const unsigned long pinCodePeriod = 2000;  //should be 10 seconds
+
+unsigned long previousTimeForAlarmTriggered;
+const unsigned long pinEntryTime = 2000;  //should be 10 seconds
 
 unsigned long previousTimeForDateAndTime = 0;
 const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
@@ -205,14 +205,13 @@ void setup() {
 
 
 void loop() {
+  int currentDistance = sonar.ping_cm();
   //Timer for when Alarm system is on
   unsigned long currentMillis = millis();
-  int currentDistance = sonar.ping_cm();
   //Serial.println(currentDistance);  // DEBUG
+
   checkDateTimeErrors();
-
   printInterval(currentMillis);
-
   resetTftScreen(ST77XX_BLACK);
 
   //If ultrasonic sensor returns 0 (blocked or signal lost)
@@ -222,6 +221,7 @@ void loop() {
     noNewTone(SPEAKER_PIN);
   }
 
+  //Alarm is triggered
   if (currentDistance < 30) {
     if (printWarning) {
       printEnterPinPeriod();
@@ -229,14 +229,14 @@ void loop() {
       printWarning = false;
     }
 
-    currentMillisForAlarm = millis();
-    unsigned long elapsedMillis = currentMillisForAlarm - currentMillis;  //Seems like there is a delay of 129ms before calculating from 0.
+    previousTimeForAlarmTriggered = millis();
+    unsigned long elapsedMillis = previousTimeForAlarmTriggered - currentMillis;  //Seems like there is a delay of 129ms before calculating from 0.
 
-    while (elapsedMillis < pinCodePeriod) {  //You have 10s until the real alarm goes off to enter right pin
-      currentMillisForAlarm = millis();
-      elapsedMillis = currentMillisForAlarm - currentMillis;
+    while (elapsedMillis < pinEntryTime) {  //You have 10s until the real alarm goes off to enter right pin
+      previousTimeForAlarmTriggered = millis();
+      elapsedMillis = previousTimeForAlarmTriggered - currentMillis;
       Serial.print("Current millis: ");
-      Serial.println(currentMillisForAlarm);
+      Serial.println(previousTimeForAlarmTriggered);
 
       Serial.print("Duration: ");
       Serial.println(elapsedMillis);
@@ -245,7 +245,7 @@ void loop() {
       delay(1000);
       //ADD CODE LATER FOR KEYPAD - ENTER PIN HERE
     }
-    while (elapsedMillis > pinCodePeriod) {
+    while (elapsedMillis > pinEntryTime) {
       Serial.println("ALAAAARM");
       delay(100);
 
