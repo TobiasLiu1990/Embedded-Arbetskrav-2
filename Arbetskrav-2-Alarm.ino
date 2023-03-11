@@ -38,19 +38,17 @@
     Timer2 (8-bit) - can count from 0-255
 */
 
-
 #include <Adafruit_GFX.h>  // Graphics
 #include <Adafruit_ST7789.h>
 #include <SPI.h>
-
-//For normal hardware wire
-#include <Wire.h>  // must be included here so that Arduino library object file references work
-#include <RtcDS3231.h>
-
 #include <NewPing.h>
 #include <NewTone.h>
 #include "pitches.h"
 #include <Keypad.h>
+//For normal hardware wire
+#include <Wire.h>  // must be included here so that Arduino library object file references work
+#include <RtcDS3231.h>
+//For normal hardware wire
 
 
 //IPS LCD-screen used with Arduino Uno
@@ -90,54 +88,166 @@ Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, rows, cols);
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
 RtcDS3231<TwoWire> Rtc(Wire);
 
+bool wasError(const char* errorTopic = "") {
+  uint8_t error = Rtc.LastError();
+  if (error != 0) {
+    // we have a communications error
+    // see https://www.arduino.cc/reference/en/language/functions/communication/wire/endtransmission/
+    // for what the number means
+    Serial.print("[");
+    Serial.print(errorTopic);
+    Serial.print("] WIRE communications error (");
+    Serial.print(error);
+    Serial.print(") : ");
+
+    switch (error) {
+      case Rtc_Wire_Error_None:
+        Serial.println("(none?!)");
+        break;
+      case Rtc_Wire_Error_TxBufferOverflow:
+        Serial.println("transmit buffer overflow");
+        break;
+      case Rtc_Wire_Error_NoAddressableDevice:
+        Serial.println("no device responded");
+        break;
+      case Rtc_Wire_Error_UnsupportedRequest:
+        Serial.println("device doesn't support request");
+        break;
+      case Rtc_Wire_Error_Unspecific:
+        Serial.println("unspecified error");
+        break;
+      case Rtc_Wire_Error_CommunicationTimeout:
+        Serial.println("communications timed out");
+        break;
+    }
+    return true;
+  }
+  return false;
+}
+
 bool printWarning = true;
-unsigned long startMillis;
-unsigned long alarmTriggerTime;
-const unsigned long pinCodePeriod = 3000;  //should be 10 seconds
+//unsigned long currentMillis;
+unsigned long currentMillisForAlarm;
+const unsigned long pinCodePeriod = 2000;  //should be 10 seconds
+
+unsigned long previousTimeForDateAndTime = 0;
+const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
+
+bool runErrorHandlingOnce = true;
+
+//Used in setup() once, and then once in loop() - but in loop() everything inside the 3rd if-statement is not run.
+RtcDateTime checkDateTimeErrors() {
+  //Error checking code taken from DS3231_Simple (Rtc by Hakuna)
+  RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
+
+  if (!Rtc.IsDateTimeValid()) {
+    if (!wasError("setup IsDateTimeValid")) {
+      // Common Causes:
+      //    1) first time you ran and the device wasn't running yet
+      //    2) the battery on the device is low or even missing
+
+      Serial.println("RTC lost confidence in the DateTime!");
+
+      // following line sets the RTC to the date & time this sketch was compiled
+      // it will also reset the valid flag internally unless the Rtc device is
+      // having an issue
+
+      if (runErrorHandlingOnce) {
+        Rtc.SetDateTime(compiled);
+        Serial.print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        runErrorHandlingOnce = false;
+        return compiled;
+      }
+    }
+  }
+}
+
 
 void setup() {
   Serial.begin(115200);
+
   tft.init(135, 240);
   Rtc.Begin();
+
+  RtcDateTime compiled = checkDateTimeErrors();
+  printDateTime(compiled);
+  Serial.println();
+
+  if (!Rtc.GetIsRunning()) {
+    if (!wasError("setup GetIsRunning")) {
+      Serial.println("RTC was not actively running, starting now");
+      Rtc.SetIsRunning(true);
+    }
+  }
+
+  RtcDateTime now = Rtc.GetDateTime();
+  if (!wasError("setup GetDateTime")) {
+    if (now < compiled) {
+      Serial.println("RTC is older than compile time, updating DateTime");
+      Rtc.SetDateTime(compiled);
+    } else if (now > compiled) {
+      Serial.println("RTC is newer than compile time, this is expected");
+    } else if (now == compiled) {
+      Serial.println("RTC is the same as compile time, while not expected all is still fine");
+    }
+  }
+
+  // never assume the Rtc was last configured by you, so
+  // just clear them to your needed state
+  Rtc.Enable32kHzPin(false);
+  wasError("setup Enable32kHzPin");
+  Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
+  wasError("setup SetSquareWavePin");
 }
+
+
+
+
 
 void loop() {
   //Timer for when Alarm system is on
-  startMillis = millis();
-
+  unsigned long currentMillis = millis();
   int currentDistance = sonar.ping_cm();
-  Serial.println(currentDistance);  //remove later, only debug
-  tft.setCursor(0, 0);
-  tft.fillScreen(ST77XX_BLACK);
+  //Serial.println(currentDistance);  // DEBUG
+  checkDateTimeErrors();
 
-  if (currentDistance <= IS_BLOCKED) {  //If ultrasonic sensor returns 0 (blocked or signal lost)
-    //different warning sound
-    noNewTone(SPEAKER_PIN);  //temp
+  printInterval(currentMillis);
+
+  resetTftScreen(ST77XX_BLACK);
+
+  //If ultrasonic sensor returns 0 (blocked or signal lost)
+  if (currentDistance <= IS_BLOCKED) {
+    NewTone(SPEAKER_PIN, 1200);
+  } else {
+    noNewTone(SPEAKER_PIN);
   }
 
   if (currentDistance < 30) {
-    alarmTriggerTime = millis();
-    unsigned long duration = alarmTriggerTime - startMillis - 129;  //Seems like there is a delay of 129ms before calculating from 0.
-
     if (printWarning) {
       printEnterPinPeriod();
       delay(100);
       printWarning = false;
     }
 
-    while (duration < pinCodePeriod) {  //You have 10s until the real alarm goes off to enter right pin
-      alarmTriggerTime = millis();
-      duration = alarmTriggerTime - startMillis;
+    currentMillisForAlarm = millis();
+    unsigned long elapsedMillis = currentMillisForAlarm - currentMillis;  //Seems like there is a delay of 129ms before calculating from 0.
+
+    while (elapsedMillis < pinCodePeriod) {  //You have 10s until the real alarm goes off to enter right pin
+      currentMillisForAlarm = millis();
+      elapsedMillis = currentMillisForAlarm - currentMillis;
+      Serial.print("Current millis: ");
+      Serial.println(currentMillisForAlarm);
+
       Serial.print("Duration: ");
-      Serial.println(duration);
+      Serial.println(elapsedMillis);
 
       NewTone(SPEAKER_PIN, 500);
-      //can enter pin
+      delay(1000);
+      //ADD CODE LATER FOR KEYPAD - ENTER PIN HERE
     }
-    while (pinCodePeriod >= duration) {
+    while (elapsedMillis > pinCodePeriod) {
       Serial.println("ALAAAARM");
       delay(100);
-      noNewTone(SPEAKER_PIN);  //temp
 
       if (printWarning) {
         printAlarmMessage();
@@ -150,8 +260,15 @@ void loop() {
       //must enter master pin to shut off
     }
   } else {
+    noNewTone(SPEAKER_PIN);
     printWarning = true;
   }
+}
+
+
+void resetTftScreen(uint16_t color) {
+  tft.setCursor(0, 0);
+  tft.fillScreen(color);
 }
 
 void printEnterPinPeriod() {
@@ -174,7 +291,18 @@ void playAlarm() {
   }
 }
 
-void printCurrentDate(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
+//Should trigger something every x secounds
+void printInterval(unsigned long currentMillis) {
+  unsigned long printTime = currentMillis - previousTimeForDateAndTime;
+
+  if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
+    printDateTime(Rtc.GetDateTime());
+    Serial.println();
+    previousTimeForDateAndTime = currentMillis;
+  }
+}
+
+void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
   char dateString[20];
 
   //snprintf_P - Reads from flash memory (non-volatile), reduced cost. Function formats and stores a series of chars in array buffer. Accepts n arguments.
