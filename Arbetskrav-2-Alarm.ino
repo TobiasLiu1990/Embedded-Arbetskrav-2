@@ -3,31 +3,25 @@
 
   Components used:
     IPS LCD-screen from Adafruit (ST7789). 240x135
+    Real time clock module ZS-042 (DS3231)
     Membrane Switch module 4x4 (keypad)
     Ultrasonic sensor (HC-SR04)
     Buzzer
     RGB-LED
 
-
   References:
-  Adafruit_GFX - https://www.arduino.cc/reference/en/libraries/adafruit-gfx-library/
-  Adafruit_ST7789 - https://github.com/adafruit/Adafruit-ST7735-Library (ST7789)
-  SPI - https://github.com/arduino/ArduinoCore-avr/blob/master/libraries/SPI/src/SPI.h
-  NewPing - https://www.arduino.cc/reference/en/libraries/newping/
-  NewTone - https://bitbucket.org/teckel12/arduino-new-tone/wiki/Home
-  pitches - Taken from Arduino Examples - Digital - toneMelody
-  Keypad Library for Arduino - https://playground.arduino.cc/Code/Keypad/
+    Adafruit_GFX - https://www.arduino.cc/reference/en/libraries/adafruit-gfx-library/
+    Adafruit_ST7789 - https://github.com/adafruit/Adafruit-ST7735-Library (ST7789)
+    SPI - https://github.com/arduino/ArduinoCore-avr/blob/master/libraries/SPI/src/SPI.h
+
+    Wire.h - 
+    RtcD3221 -
+
+    NewPing - https://www.arduino.cc/reference/en/libraries/newping/
+    NewTone - https://bitbucket.org/teckel12/arduino-new-tone/wiki/Home
+    pitches - Taken from Arduino Examples - Digital - toneMelody
+    Keypad Library for Arduino - https://playground.arduino.cc/Code/Keypad/
 */
-
-#include <Adafruit_GFX.h>  // Graphics
-#include <Adafruit_ST7789.h>
-#include <SPI.h>
-
-#include <NewPing.h>
-#include <NewTone.h>
-#include "pitches.h"
-#include <Keypad.h>
-
 
 /*
   Source: https://bitbucket.org/teckel12/arduino-new-ping/wiki/Multiple%20Definition%20of%20%22__vector_7%22%20Error
@@ -43,6 +37,20 @@
     Timer1 (16-bit) - can count from 0-65537
     Timer2 (8-bit) - can count from 0-255
 */
+
+
+#include <Adafruit_GFX.h>  // Graphics
+#include <Adafruit_ST7789.h>
+#include <SPI.h>
+
+//For normal hardware wire
+#include <Wire.h>  // must be included here so that Arduino library object file references work
+#include <RtcDS3231.h>
+
+#include <NewPing.h>
+#include <NewTone.h>
+#include "pitches.h"
+#include <Keypad.h>
 
 
 //IPS LCD-screen used with Arduino Uno
@@ -80,24 +88,25 @@ int noteDuration = 350;
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, rows, cols);
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
+RtcDS3231<TwoWire> Rtc(Wire);
 
 bool printWarning = true;
 unsigned long startMillis;
-unsigned long alarmTriggeredTime;
-const unsigned long pinCodePeriod = 2000;  //10 seconds
+unsigned long alarmTriggerTime;
+const unsigned long pinCodePeriod = 3000;  //should be 10 seconds
 
 void setup() {
   Serial.begin(115200);
   tft.init(135, 240);
+  Rtc.Begin();
 }
 
 void loop() {
   //Timer for when Alarm system is on
   startMillis = millis();
 
-
   int currentDistance = sonar.ping_cm();
-  Serial.println(currentDistance);
+  Serial.println(currentDistance);  //remove later, only debug
   tft.setCursor(0, 0);
   tft.fillScreen(ST77XX_BLACK);
 
@@ -106,67 +115,85 @@ void loop() {
     noNewTone(SPEAKER_PIN);  //temp
   }
 
-  if (currentDistance < 30) {  //Alarm triggered
-    alarmTriggeredTime = millis();
-    Serial.println(startMillis);
-    Serial.println(alarmTriggeredTime);
-    unsigned long duration = alarmTriggeredTime - startMillis - 129;    //Seems like there is a delay of 129ms before calculating from 0.
-    Serial.println(duration);
+  if (currentDistance < 30) {
+    alarmTriggerTime = millis();
+    unsigned long duration = alarmTriggerTime - startMillis - 129;  //Seems like there is a delay of 129ms before calculating from 0.
 
     if (printWarning) {
-      printAlarmMessage(duration);
+      printEnterPinPeriod();
       delay(100);
       printWarning = false;
     }
 
-    while (duration <= pinCodePeriod) {  //You have 10s until the real alarm goes off to enter right pin
-      Serial.println(duration);
-      alarmTriggeredTime = millis();
-      duration = alarmTriggeredTime - startMillis;
+    while (duration < pinCodePeriod) {  //You have 10s until the real alarm goes off to enter right pin
+      alarmTriggerTime = millis();
+      duration = alarmTriggerTime - startMillis;
       Serial.print("Duration: ");
       Serial.println(duration);
-      //Serial.println("Alarm enter pin time");
-      playAlarm();
-      //regular static beeeeeeeeeep sound
+
+      NewTone(SPEAKER_PIN, 500);
       //can enter pin
     }
     while (pinCodePeriod >= duration) {
       Serial.println("ALAAAARM");
+      delay(100);
       noNewTone(SPEAKER_PIN);  //temp
 
-      //playAlarm();
+      if (printWarning) {
+        printAlarmMessage();
+        delay(100);
+        printWarning = false;
+      }
+
+      playAlarm();
       //PLAY ACTUAL LOUD ALARM
       //must enter master pin to shut off
     }
   } else {
-    noNewTone(SPEAKER_PIN);  //temp
     printWarning = true;
   }
 }
 
-void printAlarmMessage(unsigned long duration) {
-  if (duration <= pinCodePeriod) {
-    tft.setTextColor(ST77XX_WHITE);
-    tft.print("Alarm triggered. Enter PIN");
-  } else {
-    tft.setTextColor(ST77XX_RED);
-    tft.print("WARNING!!!!");
-  }
+void printEnterPinPeriod() {
+  tft.setTextColor(ST77XX_WHITE);
+  tft.print("Alarm triggered. Enter PIN");
+}
+
+void printAlarmMessage() {
+  tft.setTextColor(ST77XX_RED);
+  tft.print("WARNING!!!!");
 }
 
 
-void printCurrentDate() {
+#define countof(arr) (sizeof(arr) / sizeof(arr[0]))  //Macro to get number of elements in array
+
+void playAlarm() {
+  for (int alarmNote = 0; alarmNote < countof(alarmMelody); alarmNote++) {
+    NewTone(SPEAKER_PIN, alarmMelody[alarmNote]);
+    delay(noteDuration);
+  }
+}
+
+void printCurrentDate(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
+  char dateString[20];
+
+  //snprintf_P - Reads from flash memory (non-volatile), reduced cost. Function formats and stores a series of chars in array buffer. Accepts n arguments.
+  //PSTR - Uses flash memory too (?) Only be used in functions (?)
+
+  snprintf_P(dateString,                             //buffer
+             countof(dateString),                    //max number of bytes (char), written to buffer
+             PSTR("%02u/%02u/%04u %02u:%02u:%02u"),  //PSTR reads from flash mem. n (...) is for formating
+             date.Month(),                           //rest of params to format
+             date.Day(),
+             date.Year(),
+             date.Hour(),
+             date.Minute(),
+             date.Second());
+  Serial.print(dateString);
 }
 
 void printAlarmDates() {
 }
 
 void saveAlarmDate() {
-}
-
-void playAlarm() {
-  for (int alarmNote = 0; alarmNote < 2; alarmNote++) {
-    NewTone(SPEAKER_PIN, alarmMelody[alarmNote]);
-    delay(noteDuration);
-  }
 }
