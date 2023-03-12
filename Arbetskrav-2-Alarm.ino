@@ -141,8 +141,6 @@ const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
 bool runErrorHandlingOnce = true;
 
 long secretPin = 5555;
-int pinEntryCounter = 0;
-bool isCorrectCode = false;
 String inputPin = "";
 
 
@@ -220,6 +218,9 @@ void setup() {
 void loop() {
   int currentDistance = sonar.ping_cm();
   unsigned long currentMillis = millis();
+  bool isCorrectCode = false;
+  int pinEntryCounter = 0;
+
   //Serial.println(currentDistance);  // DEBUG
 
   checkDateTimeErrors();
@@ -247,41 +248,17 @@ void loop() {
       getElapsedAlarmTriggertime(currentMillis);
       NewTone(SPEAKER_PIN, 500);
 
-      //int theEnteredPin = enterPin();
-      //Serial.println(inputPin);
-
       if (inputPin.length() < 4) {
-        char key = keypad.getKey();
-
-        if (key && key >= 48 && key <= 57) {
-          Serial.print("Entered pin: ");
-          Serial.println(key);
-          inputPin += key;
-        }
+        enterPin();
       } else {
-        int inputPinToInt = inputPin.toInt();
-
-        if (inputPinToInt == secretPin) {
-          isCorrectCode = true;
-        } else if (inputPinToInt != secretPin && pinEntryCounter >= 3) {
-          isCorrectCode = false;
-        }
-      }
-      /*
-      isCorrectCode = validatePin(theEnteredPin);
-      if (isCorrectCode) {
-        Serial.print("Correct pin");
-        isCorrectCode = false;
-      } else {
-        Serial.print("Wrong pin");
+        isCorrectCode = validatePin(inputPin.toInt(), pinEntryCounter);
+        //Serial.print("counter: ");
+        //Serial.println(pinEntryCounter);
         pinEntryCounter++;
       }
-      */
     }
-    inputPin = "";
 
-
-    while (elapsedTime >= pinEntryTime && !isCorrectCode) {
+    while (elapsedTime >= pinEntryTime || !isCorrectCode) {
       Serial.println("ALAAAARM");
 
       if (tftCheckIfPrinted) {
@@ -299,26 +276,29 @@ void loop() {
   }
 }
 
-int enterPin() {
+void enterPin() {
   char key = keypad.getKey();
 
-  while (inputPin.length() < 4) {  //ASCII 48 -> 0, 57 -> 9
-    key = keypad.getKey();
-
-    if (key && key >= 48 && key <= 57) {
-      Serial.print("Entered pin: ");
-      Serial.println(key);
-
-      inputPin += key;
-    }
+  if (key && key >= 48 && key <= 57) {
+    Serial.print("Entered pin: ");
+    Serial.println(key);
+    inputPin += key;
   }
-  return inputPin.toInt();
 }
 
-bool validatePin(int theEnteredPin) {
-  if (theEnteredPin == secretPin) {
+bool validatePin(int enteredPin, int pinEntryCounter) {
+  Serial.print("Entered pin: ");
+  Serial.println(enteredPin);
+  Serial.println ("ActualPin: ");
+  Serial.print(secretPin);
+  Serial.println();
+
+  if (enteredPin == secretPin) {
+    inputPin = "";
     return true;
-  } else {
+  } else if (enteredPin != secretPin) {
+    Serial.print("Wrong PIN");
+    inputPin = "";
     return false;
   }
 }
