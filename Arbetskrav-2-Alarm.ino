@@ -51,7 +51,6 @@
 #include <RtcDS3231.h>
 //For normal hardware wire
 
-
 //IPS LCD-screen used with Arduino Uno
 #define TFT_CS 10
 #define TFT_DC 8
@@ -64,13 +63,18 @@
 #define TRIGGER_PIN A0
 #define ECHO_PIN A1
 #define ALARM_DISTANCE 150
-#define IS_BLOCKED 0
+#define IS_BLOCKED_DISTANCE 0
+
+//Buzzer
+#define SPEAKER_PIN A2
+int alarmMelody[] = { NOTE_C4, NOTE_G3 };
+int noteDuration = 250;
 
 //Keypad - Some code reused from Arbetskrav 1
 const byte rows = 4;
 const byte cols = 4;
-const byte rowPins[rows] = { 8, 7, 6, 5 };
-const byte colPins[cols] = { 4, 3, 2, 1 };
+const byte rowPins[rows] = { 7, 6, 5, 4 };
+const byte colPins[cols] = { 3, 2, A4, A5 };
 const char keys[rows][cols] = {
   { '1', '2', '3', 'A' },
   { '4', '5', '6', 'B' },
@@ -78,16 +82,12 @@ const char keys[rows][cols] = {
   { '#', '0', '*', 'D' }
 };
 
-//Buzzer
-#define SPEAKER_PIN A2
-int alarmMelody[] = { NOTE_C4, NOTE_G3 };
-int noteDuration = 250;
-
-
+//Objects
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, rows, cols);
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
 RtcDS3231<TwoWire> Rtc(Wire);
+
 
 bool wasError(const char* errorTopic = "") {
   uint8_t error = Rtc.LastError();
@@ -126,16 +126,25 @@ bool wasError(const char* errorTopic = "") {
   return false;
 }
 
-bool printWarning = true;
+
+
+
+bool tftCheckIfPrinted = true;
 
 unsigned long timeWhenAlarmTriggered;
-unsigned long elapsedMillis;
-const unsigned long pinEntryTime = 2000;  //should be 10 seconds
+unsigned long elapsedTime;
+const unsigned long pinEntryTime = 10000;  //should be 10 seconds
 
 unsigned long previousTimeForDateAndTime = 0;
 const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
 
 bool runErrorHandlingOnce = true;
+
+long secretPin = 5555;
+int pinEntryCounter = 0;
+bool isCorrectCode = false;
+String inputPin = "";
+
 
 //Used in setup() once, and then once in loop() - but in loop() everything inside the 3rd if-statement is not run.
 RtcDateTime checkDateTimeErrors() {
@@ -156,12 +165,12 @@ RtcDateTime checkDateTimeErrors() {
 
       if (runErrorHandlingOnce) {
         Rtc.SetDateTime(compiled);
-        Serial.print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
         runErrorHandlingOnce = false;
-        return compiled;
+        return;
       }
     }
   }
+  return compiled;
 }
 
 
@@ -170,6 +179,10 @@ void setup() {
 
   tft.init(135, 240);
   Rtc.Begin();
+
+#if defined(WIRE_HAS_TIMEOUT)
+  Wire.setWireTimeout(3000 /* us */, true /* reset_on_timeout */);
+#endif
 
   RtcDateTime compiled = checkDateTimeErrors();
   printDateTime(compiled);
@@ -204,20 +217,17 @@ void setup() {
 
 
 
-
-
 void loop() {
   int currentDistance = sonar.ping_cm();
-  //Timer for when Alarm system is on
   unsigned long currentMillis = millis();
   //Serial.println(currentDistance);  // DEBUG
 
   checkDateTimeErrors();
-  printInterval(currentMillis);
+  printDateInterval(currentMillis);
   resetTftScreen(ST77XX_BLACK);
 
   //If ultrasonic sensor returns 0 (blocked or signal lost)
-  if (currentDistance <= IS_BLOCKED) {
+  if (currentDistance <= IS_BLOCKED_DISTANCE) {
     NewTone(SPEAKER_PIN, 1200);
   } else {
     noNewTone(SPEAKER_PIN);
@@ -225,30 +235,59 @@ void loop() {
 
   //Alarm is triggered
   if (currentDistance < 30) {
-    if (printWarning) {
+    if (tftCheckIfPrinted) {
       printEnterPinPeriod();
       delay(100);
-      printWarning = false;
+      tftCheckIfPrinted = false;
     }
 
     getElapsedAlarmTriggertime(currentMillis);
-    
-    while (elapsedMillis < pinEntryTime) {  //You have 10s until the real alarm goes off to enter right pin
+
+    while (elapsedTime < pinEntryTime && !isCorrectCode) {  //You have 10s until the real alarm goes off to enter right pin
       getElapsedAlarmTriggertime(currentMillis);
-
-      Serial.print("Elapsed time: ");
-      Serial.println(elapsedMillis);
-
       NewTone(SPEAKER_PIN, 500);
-      //ADD CODE LATER FOR KEYPAD - ENTER PIN HERE
+
+      //int theEnteredPin = enterPin();
+      //Serial.println(inputPin);
+
+      if (inputPin.length() < 4) {
+        char key = keypad.getKey();
+
+        if (key && key >= 48 && key <= 57) {
+          Serial.print("Entered pin: ");
+          Serial.println(key);
+          inputPin += key;
+        }
+      } else {
+        int inputPinToInt = inputPin.toInt();
+
+        if (inputPinToInt == secretPin) {
+          isCorrectCode = true;
+        } else if (inputPinToInt != secretPin && pinEntryCounter >= 3) {
+          isCorrectCode = false;
+        }
+      }
+      /*
+      isCorrectCode = validatePin(theEnteredPin);
+      if (isCorrectCode) {
+        Serial.print("Correct pin");
+        isCorrectCode = false;
+      } else {
+        Serial.print("Wrong pin");
+        pinEntryCounter++;
+      }
+      */
     }
-    while (elapsedMillis >= pinEntryTime) {
+    inputPin = "";
+
+
+    while (elapsedTime >= pinEntryTime && !isCorrectCode) {
       Serial.println("ALAAAARM");
 
-      if (printWarning) {
+      if (tftCheckIfPrinted) {
         printAlarmMessage();
         delay(100);
-        printWarning = false;
+        tftCheckIfPrinted = false;
       }
 
       playAlarm();
@@ -256,13 +295,37 @@ void loop() {
     }
   } else {
     noNewTone(SPEAKER_PIN);
-    printWarning = true;
+    tftCheckIfPrinted = true;
+  }
+}
+
+int enterPin() {
+  char key = keypad.getKey();
+
+  while (inputPin.length() < 4) {  //ASCII 48 -> 0, 57 -> 9
+    key = keypad.getKey();
+
+    if (key && key >= 48 && key <= 57) {
+      Serial.print("Entered pin: ");
+      Serial.println(key);
+
+      inputPin += key;
+    }
+  }
+  return inputPin.toInt();
+}
+
+bool validatePin(int theEnteredPin) {
+  if (theEnteredPin == secretPin) {
+    return true;
+  } else {
+    return false;
   }
 }
 
 void getElapsedAlarmTriggertime(unsigned long currentMillis) {
   timeWhenAlarmTriggered = millis();
-  elapsedMillis = timeWhenAlarmTriggered - currentMillis;
+  elapsedTime = timeWhenAlarmTriggered - currentMillis;
 }
 
 void resetTftScreen(uint16_t color) {
@@ -291,14 +354,16 @@ void playAlarm() {
 }
 
 //Should trigger something every x secounds
-void printInterval(unsigned long currentMillis) {
+void printDateInterval(unsigned long currentMillis) {
   unsigned long printTime = currentMillis - previousTimeForDateAndTime;
 
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
     RtcDateTime date = Rtc.GetDateTime();
-    printDateTime(date);
-    Serial.println();
-    previousTimeForDateAndTime = currentMillis;
+    if (!wasError("no errors")) {
+      printDateTime(date);
+      Serial.println();
+      previousTimeForDateAndTime = currentMillis;
+    }
   }
 }
 
