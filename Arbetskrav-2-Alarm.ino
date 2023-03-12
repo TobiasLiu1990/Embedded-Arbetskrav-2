@@ -244,21 +244,21 @@ void loop() {
 
     getElapsedAlarmTriggertime(currentMillis);
 
-    while (elapsedTime < pinEntryTime && !isCorrectCode) {  //You have 10s until the real alarm goes off to enter right pin
+    while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryCounter < 3) {  //You have 10s until the real alarm goes off to enter right pin
       getElapsedAlarmTriggertime(currentMillis);
       NewTone(SPEAKER_PIN, 500);
 
-      if (inputPin.length() < 4) {
-        enterPin();
-      } else {
-        isCorrectCode = validatePin(inputPin.toInt(), pinEntryCounter);
-        //Serial.print("counter: ");
-        //Serial.println(pinEntryCounter);
-        pinEntryCounter++;
+      if (pinEntryCounter < 3) {              //3 tries to enter correct PIN
+        if (inputPin.length() < 4) {          //Can input 4 chars
+          enterPin();
+        } else {
+          isCorrectCode = validatePin(inputPin.toInt(), pinEntryCounter);     //Check if input pin == correct pin
+          pinEntryCounter++;
+        }
       }
     }
 
-    while (elapsedTime >= pinEntryTime || !isCorrectCode) {
+    while (elapsedTime >= pinEntryTime || !isCorrectCode && pinEntryCounter >= 3) {
       Serial.println("ALAAAARM");
 
       if (tftCheckIfPrinted) {
@@ -280,8 +280,8 @@ void enterPin() {
   char key = keypad.getKey();
 
   if (key && key >= 48 && key <= 57) {
-    Serial.print("Entered pin: ");
-    Serial.println(key);
+    //Serial.print("Entered pin: ");
+    //Serial.println(key);
     inputPin += key;
   }
 }
@@ -289,14 +289,16 @@ void enterPin() {
 bool validatePin(int enteredPin, int pinEntryCounter) {
   Serial.print("Entered pin: ");
   Serial.println(enteredPin);
-  Serial.println ("ActualPin: ");
+  Serial.println("ActualPin: ");
   Serial.print(secretPin);
   Serial.println();
+  Serial.print("counter: ");
+  Serial.println(pinEntryCounter);
 
   if (enteredPin == secretPin) {
     inputPin = "";
     return true;
-  } else if (enteredPin != secretPin) {
+  } else {
     Serial.print("Wrong PIN");
     inputPin = "";
     return false;
