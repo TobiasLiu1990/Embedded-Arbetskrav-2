@@ -63,11 +63,11 @@
 #define TRIGGER_PIN A1
 #define ECHO_PIN A2
 #define ALARM_DISTANCE 150
-#define IS_BLOCKED_DISTANCE 0
+#define IS_BLOCKED_DISTANCE 1
 
 //Buzzer
 #define SPEAKER_PIN A0
-int alarmMelody[] = { NOTE_C4, NOTE_G3 };           // 2k resistor atm
+int alarmMelody[] = { NOTE_C4, NOTE_G3 };  // 2k resistor atm
 int noteDuration = 250;
 
 //Keypad - Some code reused from Arbetskrav 1
@@ -127,8 +127,11 @@ bool wasError(const char* errorTopic = "") {
 }
 
 
+#define MAX_NUM_OF_DATES 10
+#define DATE_LENGTH 20  //num of chars of date+time
+char alarmDates[MAX_NUM_OF_DATES][DATE_LENGTH];
 
-
+char dateString[20];
 bool tftCheckIfPrinted = true;
 
 unsigned long timeWhenAlarmTriggered;
@@ -177,6 +180,8 @@ void setup() {
 
   tft.init(135, 240);
   Rtc.Begin();
+  resetTftScreen(ST77XX_BLACK);
+  initAlarmDatesArray();
 
 #if defined(WIRE_HAS_TIMEOUT)
   Wire.setWireTimeout(3000 /* us */, true /* reset_on_timeout */);
@@ -225,22 +230,21 @@ void loop() {
 
   checkDateTimeErrors();
   printDateInterval(currentMillis);
-  resetTftScreen(ST77XX_BLACK);
 
   //If ultrasonic sensor returns 0 (blocked or signal lost)
   if (currentDistance <= IS_BLOCKED_DISTANCE) {
     NewTone(SPEAKER_PIN, 1200);
-  } else {
-    noNewTone(SPEAKER_PIN);
   }
-
   //Alarm is triggered
-  if (currentDistance < 30) {
+  else if (currentDistance < 30) {
     if (tftCheckIfPrinted) {
       printEnterPinPeriod();
       delay(100);
       tftCheckIfPrinted = false;
     }
+
+    // Save date when alarm triggered in array
+    saveTriggeredAlarmDate(dateString);
 
     getElapsedAlarmTriggertime(currentMillis);
 
@@ -248,11 +252,11 @@ void loop() {
       getElapsedAlarmTriggertime(currentMillis);
       NewTone(SPEAKER_PIN, 500);
 
-      if (pinEntryCounter < 3) {              //3 tries to enter correct PIN
-        if (inputPin.length() < 4) {          //Can input 4 chars
+      if (pinEntryCounter < 3) {      //3 tries to enter correct PIN
+        if (inputPin.length() < 4) {  //Can input 4 chars
           enterPin();
         } else {
-          isCorrectCode = validatePin(inputPin.toInt(), pinEntryCounter);     //Check if input pin == correct pin
+          isCorrectCode = validatePin(inputPin.toInt(), pinEntryCounter);  //Check if input pin == correct pin
           pinEntryCounter++;
         }
       }
@@ -336,21 +340,22 @@ void playAlarm() {
 }
 
 //Should trigger something every x secounds
-void printDateInterval(unsigned long currentMillis) {
+char printDateInterval(unsigned long currentMillis) {
   unsigned long printTime = currentMillis - previousTimeForDateAndTime;
 
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
     RtcDateTime date = Rtc.GetDateTime();
+
     if (!wasError("no errors")) {
-      printDateTime(date);
-      Serial.println();
       previousTimeForDateAndTime = currentMillis;
+      return printDateTime(date);
     }
   }
 }
 
-void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
-  char dateString[20];
+char printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
+  resetTftScreen(ST77XX_BLACK);
+  //dateString[20];
 
   //snprintf_P - Reads from flash memory (non-volatile), reduced cost. Function formats and stores a series of chars in array buffer. Accepts n arguments.
   //PSTR - Uses flash memory too (?) Only be used in functions (?)
@@ -364,11 +369,37 @@ void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple
              date.Hour(),
              date.Minute(),
              date.Second());
-  Serial.print(dateString);
+  Serial.print(dateString);  //Remove later
+  Serial.println();  //DEBUG
+  tft.print(dateString);
+  return dateString;
 }
 
 void printAlarmDates() {
 }
 
-void saveAlarmDate() {
+void saveTriggeredAlarmDate(char dateString[]) {
+  for (int i = 0; i < 10; i++) {
+    if (alarmDates[i][i] == 9) {
+      Serial.println("inne");
+
+      for (int j = 0; j < 20; j++) {
+        if (alarmDates[i][j] = 9) {
+          alarmDates[i][j] = 0;
+        }
+        alarmDates[i][j] += dateString[j];
+        Serial.print(alarmDates[i][j]);
+      }
+    }
+  }
 }
+
+void initAlarmDatesArray() {    //Sets every first letter to char 9 in every index. Since the date format mm/dd/yyyy, it cant start with a 9
+  for (int i = 0; i < 10; i++) {
+    for (int j = 0; j < 1; j++) {
+      alarmDates[i][j] = 9;
+    }
+  }
+}
+
+
