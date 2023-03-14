@@ -60,14 +60,14 @@
 #define LED_PIN 2
 
 //Ultrasonic sensor
-#define TRIGGER_PIN A0
-#define ECHO_PIN A1
+#define TRIGGER_PIN A1
+#define ECHO_PIN A2
 #define ALARM_DISTANCE 150
 #define IS_BLOCKED_DISTANCE 0
 
 //Buzzer
-#define SPEAKER_PIN A2
-int alarmMelody[] = { NOTE_C4, NOTE_G3 };
+#define SPEAKER_PIN A0
+int alarmMelody[] = { NOTE_C4, NOTE_G3 };           // 2k resistor atm
 int noteDuration = 250;
 
 //Keypad - Some code reused from Arbetskrav 1
