@@ -128,10 +128,11 @@ bool wasError(const char* errorTopic = "") {
 
 
 #define MAX_NUM_OF_DATES 10
-#define DATE_LENGTH 20  //num of chars of date+time
+#define DATE_LENGTH 19  //num of chars of date+time
 char alarmDates[MAX_NUM_OF_DATES][DATE_LENGTH];
-
 char dateString[20];
+int counter = 0;
+
 bool tftCheckIfPrinted = true;
 
 unsigned long timeWhenAlarmTriggered;
@@ -225,7 +226,6 @@ void loop() {
   unsigned long currentMillis = millis();
   bool isCorrectCode = false;
   int pinEntryCounter = 0;
-
   //Serial.println(currentDistance);  // DEBUG
 
   checkDateTimeErrors();
@@ -244,7 +244,13 @@ void loop() {
     }
 
     // Save date when alarm triggered in array
-    saveTriggeredAlarmDate(dateString);
+    findArrayIndexForSavingTriggerAlarm();
+
+    if (alarmDates[0][0] != NULL) {
+      Serial.print("Date of 0: ");
+      Serial.print(alarmDates[0]);
+      delay(1000);
+    }
 
     getElapsedAlarmTriggertime(currentMillis);
 
@@ -340,7 +346,7 @@ void playAlarm() {
 }
 
 //Should trigger something every x secounds
-char printDateInterval(unsigned long currentMillis) {
+void printDateInterval(unsigned long currentMillis) {
   unsigned long printTime = currentMillis - previousTimeForDateAndTime;
 
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
@@ -348,14 +354,13 @@ char printDateInterval(unsigned long currentMillis) {
 
     if (!wasError("no errors")) {
       previousTimeForDateAndTime = currentMillis;
-      return printDateTime(date);
+      printDateTime(date);
     }
   }
 }
 
-char printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
+void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
   resetTftScreen(ST77XX_BLACK);
-  //dateString[20];
 
   //snprintf_P - Reads from flash memory (non-volatile), reduced cost. Function formats and stores a series of chars in array buffer. Accepts n arguments.
   //PSTR - Uses flash memory too (?) Only be used in functions (?)
@@ -370,36 +375,39 @@ char printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple
              date.Minute(),
              date.Second());
   Serial.print(dateString);  //Remove later
-  Serial.println();  //DEBUG
+  Serial.println();          //DEBUG
   tft.print(dateString);
-  return dateString;
+}
+
+void initAlarmDatesArray() {  //Sets every first letter to char 9 in every index. Since the date format mm/dd/, it cant start with a 9
+  for (int i = 0; i < MAX_NUM_OF_DATES; i++) {
+    for (int j = 0; j < 1; j++) {
+      alarmDates[i][j] = NULL;
+    }
+  }
+}
+
+void findArrayIndexForSavingTriggerAlarm() {
+  bool foundNull = true;
+
+  while (foundNull && counter < 10) {
+
+    if (alarmDates[counter][counter - counter] == NULL) {
+      Serial.println("Saved date: ");
+      saveTriggeredAlarmDate(counter);
+      counter = 0;
+      foundNull = false;
+    }
+    Serial.println("No more nulls");
+    counter++;
+  }
+}
+
+void saveTriggeredAlarmDate(int i) {
+  for (int j = 0; j < 19; j++) {
+    alarmDates[i][j] = dateString[j];
+  }
 }
 
 void printAlarmDates() {
 }
-
-void saveTriggeredAlarmDate(char dateString[]) {
-  for (int i = 0; i < 10; i++) {
-    if (alarmDates[i][i] == 9) {
-      Serial.println("inne");
-
-      for (int j = 0; j < 20; j++) {
-        if (alarmDates[i][j] = 9) {
-          alarmDates[i][j] = 0;
-        }
-        alarmDates[i][j] += dateString[j];
-        Serial.print(alarmDates[i][j]);
-      }
-    }
-  }
-}
-
-void initAlarmDatesArray() {    //Sets every first letter to char 9 in every index. Since the date format mm/dd/yyyy, it cant start with a 9
-  for (int i = 0; i < 10; i++) {
-    for (int j = 0; j < 1; j++) {
-      alarmDates[i][j] = 9;
-    }
-  }
-}
-
-
