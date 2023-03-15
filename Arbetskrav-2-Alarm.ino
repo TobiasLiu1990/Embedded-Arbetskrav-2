@@ -21,7 +21,6 @@
     NewPing - https://www.arduino.cc/reference/en/libraries/newping/
     NewTone - https://bitbucket.org/teckel12/arduino-new-tone/wiki/Home
     pitches - Taken from Arduino Examples - Digital - toneMelody
-    Keypad Library for Arduino - https://playground.arduino.cc/Code/Keypad/
 */
 
 /*
@@ -52,7 +51,6 @@
 #include <NewPing.h>
 #include <NewTone.h>
 #include "pitches.h"
-#include <Keypad.h>
 //For normal hardware wire
 #include <Wire.h>  // must be included here so that Arduino library object file references work
 #include <RtcDS3231.h>
@@ -77,21 +75,24 @@
 int alarmMelody[] = { NOTE_C4, NOTE_G3 };  // 2k resistor atm
 int noteDuration = 250;
 
-//Keypad - Some code reused from Arbetskrav 1
-const byte rows = 4;
-const byte cols = 4;
-const byte rowPins[rows] = { 7, 6, 5, 4 };
-const byte colPins[cols] = { 3, 2, A4, A5 };
-const char keys[rows][cols] = {
-  { '1', '2', '3', 'A' },
-  { '4', '5', '6', 'B' },
-  { '7', '8', '9', 'C' },
-  { '#', '0', '*', 'D' }
+//Keypad
+char keys[16] = {
+  '1', '2', '3', 'A',
+  '4', '5', '6', 'B',
+  '7', '8', '9', 'C',
+  '*', '0', '#', 'D'
 };
+
+int keyValues[16] = {
+  924, 907, 889, 872,
+  847, 833, 818, 803,
+  782, 770, 757, 744,
+  726, 716, 704, 694
+};
+
 
 //Objects
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
-Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, rows, cols);
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
 RtcDS3231<TwoWire> Rtc(Wire);
 
@@ -252,13 +253,6 @@ void loop() {
 
     // Save date when alarm triggered in array
     findArrayIndexForSavingTriggerAlarm();
-
-    if (alarmDates[0][0] != NULL) {
-      Serial.print("Date of 0: ");
-      Serial.print(alarmDates[0]);
-      delay(1000);
-    }
-
     getElapsedAlarmTriggertime(currentMillis);
 
     while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryCounter < 3) {  //You have 10s until the real alarm goes off to enter right pin
@@ -294,12 +288,18 @@ void loop() {
 }
 
 void enterPin() {
-  char key = keypad.getKey();
+  int keyIn = 0;
+  int range = 2;
 
-  if (key && key >= 48 && key <= 57) {
-    //Serial.print("Entered pin: ");
-    //Serial.println(key);
-    inputPin += key;
+  keyIn = analogRead(A3);
+
+  //Would probably be better with millis(). But using delay for now as it works. Although not optimal as holding the button or a long press adds more than one key-press
+  for (int i = 0; i < 16; i++) {
+    if (keyIn >= keyValues[i] - range && keyIn <= keyValues[i] + range) {
+      inputPin += keys[i];
+      delay(250);
+      Serial.println(inputPin);
+    }
   }
 }
 
