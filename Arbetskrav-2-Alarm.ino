@@ -25,6 +25,13 @@
 */
 
 /*
+  Keypad with only 1 pin
+    * 7 Resistor
+    * 6 with different resistor values
+      - Need to be in similar range
+*/
+
+/*
   Source: https://bitbucket.org/teckel12/arduino-new-ping/wiki/Multiple%20Definition%20of%20%22__vector_7%22%20Error
   Here i used another library: NewTone because i was getting a __vector_7 error, most likely because NewPing and Tone library tries to access the same timer 2.
 
