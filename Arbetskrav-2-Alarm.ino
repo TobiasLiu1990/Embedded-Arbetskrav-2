@@ -1,57 +1,6 @@
-/*
-  Arbetskrav 2 - Alarmsystem
+//Arbetskrav 2 - Alarmsystem
 
-  Components used:
-    IPS LCD-screen from Adafruit (ST7789). 240x135
-    Real time clock module ZS-042 (DS3231)
-    Membrane Switch module 4x4 (keypad)
-    Ultrasonic sensor (HC-SR04)
-    Buzzer
-    RGB-LED
-    220 resistor
-
-  References:
-    Adafruit_GFX - https://www.arduino.cc/reference/en/libraries/adafruit-gfx-library/
-    Adafruit_ST7789 - https://github.com/adafruit/Adafruit-ST7735-Library (ST7789)
-    SPI - https://github.com/arduino/ArduinoCore-avr/blob/master/libraries/SPI/src/SPI.h
-
-    ---Adafruit ImageReader Library---
-    #include <SdFat.h>                 // SD card & FAT filesystem library
-    #include <Adafruit_SPIFlash.h>     // SPI / QSPI flash library
-    #include <Adafruit_ImageReader.h>  // Image-reading functions
-    ---Adafruit ImageReader Library---
-
-    Wire.h - 
-    RtcD3221 -
-
-    NewPing - https://www.arduino.cc/reference/en/libraries/newping/
-    NewTone - https://bitbucket.org/teckel12/arduino-new-tone/wiki/Home
-    pitches - Taken from Arduino Examples - Digital - toneMelody
-*/
-
-/*
-  Keypad with only 1 pin
-    * 7 Resistor
-    * 6 with different resistor values
-      - Need to be in similar range
-*/
-
-/*
-  Source: https://bitbucket.org/teckel12/arduino-new-ping/wiki/Multiple%20Definition%20of%20%22__vector_7%22%20Error
-  Here i used another library: NewTone because i was getting a __vector_7 error, most likely because NewPing and Tone library tries to access the same timer 2.
-
-
-  https://microcontrollerslab.com/arduino-timer-interrupts-tutorial/
-  Timers used for interrupts.
-  Interrupts used to handle events that occur a condition.
-  Timer interrupts in Arduino - pause the sequential execution of a program loop() function for a predefined number of secounds.
-  Arduino has 3 timers: 
-    Timer0 (8-bit)
-    Timer1 (16-bit) - can count from 0-65537
-    Timer2 (8-bit) - can count from 0-255
-*/
-
-#include <Adafruit_GFX.h>  // Graphics
+#include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <SdFat.h>                 // SD card & FAT filesystem library
 #include <Adafruit_SPIFlash.h>     // SPI / QSPI flash library
@@ -59,28 +8,22 @@
 #include <SPI.h>
 #include <NewPing.h>
 #include <NewTone.h>
-#include "pitches.h"
 //For normal hardware wire
 #include <Wire.h>  // must be included here so that Arduino library object file references work
 #include <RtcDS3231.h>
-//For normal hardware wire
 
-//IPS LCD-screen used with Arduino Uno. Some code for reading SD-card taken from Adafruit ImageReader Library - BreakoutST7789-240x135.ino
+
+//IPS LCD-screen with Arduino Uno. Some code taken from Adafruit ImageReader Library - BreakoutST7789-240x135
 #define TFT_CS 10
 #define TFT_DC 8
 #define TFT_RST 9
-#define SD_CS 4    // SD card select pin
-
+#define SD_CS 4
 #define USE_SD_CARD
 
 #if defined(USE_SD_CARD)
 SdFat32 SD;
 Adafruit_ImageReader reader(SD);
 #endif
-
-
-//RGB-LED
-#define LED_PIN 2
 
 //Ultrasonic sensor
 #define TRIGGER_PIN A1
@@ -90,18 +33,18 @@ Adafruit_ImageReader reader(SD);
 
 //Buzzer
 #define SPEAKER_PIN A0
-int alarmMelody[] = { NOTE_C4, NOTE_G3 };  // 2k resistor atm
-int noteDuration = 250;
+const short alarmMelody[] = { 262, 196 };  // 2k resistor atm   NOTE_C4 = 262, COTE_G3 = 196 From pitches.h
+const short noteDuration = 250;
 
 //Keypad
-char keys[16] = {
+const char keys[16] PROGMEM = {
   '1', '2', '3', 'A',
   '4', '5', '6', 'B',
   '7', '8', '9', 'C',
   '*', '0', '#', 'D'
 };
 
-int keyValues[16] = {
+const short keyValues[16] PROGMEM = {
   924, 907, 889, 872,
   847, 833, 818, 803,
   782, 770, 757, 744,
@@ -111,59 +54,17 @@ int keyValues[16] = {
 
 //Objects
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
-int32_t width = 0;
-int32_t height = 0;
-ImageReturnCode status;   //Status from image-reading functions
+ImageReturnCode status;  //Status from image-reading functions
 
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
 RtcDS3231<TwoWire> Rtc(Wire);
 
 
-bool wasError(const char* errorTopic = "") {
-  uint8_t error = Rtc.LastError();
-  if (error != 0) {
-    // we have a communications error
-    // see https://www.arduino.cc/reference/en/language/functions/communication/wire/endtransmission/
-    // for what the number means
-    Serial.print("[");
-    Serial.print(errorTopic);
-    Serial.print("] WIRE communications error (");
-    Serial.print(error);
-    Serial.print(") : ");
-
-    switch (error) {
-      case Rtc_Wire_Error_None:
-        Serial.println("(none?!)");
-        break;
-      case Rtc_Wire_Error_TxBufferOverflow:
-        Serial.println("transmit buffer overflow");
-        break;
-      case Rtc_Wire_Error_NoAddressableDevice:
-        Serial.println("no device responded");
-        break;
-      case Rtc_Wire_Error_UnsupportedRequest:
-        Serial.println("device doesn't support request");
-        break;
-      case Rtc_Wire_Error_Unspecific:
-        Serial.println("unspecified error");
-        break;
-      case Rtc_Wire_Error_CommunicationTimeout:
-        Serial.println("communications timed out");
-        break;
-    }
-    return true;
-  }
-  return false;
-}
-
-
-#define MAX_NUM_OF_DATES 10
-#define DATE_LENGTH 19  //num of chars of date+time
+const short MAX_NUM_OF_DATES = 5;
+const short DATE_LENGTH = 19;
 char alarmDates[MAX_NUM_OF_DATES][DATE_LENGTH];
 char dateString[20];
-int counter = 0;
-
-bool tftCheckIfPrinted = true;
+short counter = 0;
 
 unsigned long timeWhenAlarmTriggered;
 unsigned long elapsedTime;
@@ -174,41 +75,37 @@ const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
 
 bool runErrorHandlingOnce = true;
 
-long secretPin = 5555;
+short secretPin = 5555;
 String inputPin = "";
 
-
-//Used in setup() once, and then once in loop() - but in loop() everything inside the 3rd if-statement is not run.
-RtcDateTime checkDateTimeErrors() {
-  //Error checking code taken from DS3231_Simple (Rtc by Hakuna)
-  RtcDateTime compiled = RtcDateTime(__DATE__, __TIME__);
-
-  if (!Rtc.IsDateTimeValid()) {
-    if (!wasError("setup IsDateTimeValid")) {
-      // Common Causes:
-      //    1) first time you ran and the device wasn't running yet
-      //    2) the battery on the device is low or even missing
-
-      Serial.println("RTC lost confidence in the DateTime!");
-
-      // following line sets the RTC to the date & time this sketch was compiled
-      // it will also reset the valid flag internally unless the Rtc device is
-      // having an issue
-
-      if (runErrorHandlingOnce) {
-        Rtc.SetDateTime(compiled);
-        runErrorHandlingOnce = false;
-        return;
-      }
-    }
-  }
-  return compiled;
-}
 
 
 void setup() {
   Serial.begin(115200);
-  while(!Serial);   //Wait till Serial starts
+
+  //Check SD file system
+  Serial.print(F("Initializing filesystem..."));
+#if defined(USE_SD_CARD)
+  if (!SD.begin(SD_CS, SD_SCK_MHZ(10))) {
+    Serial.println(F("SD begin() failed"));
+    for (;;)
+      ;  //Fatal error, do not continue
+  }
+#else {
+    if (!flash.begin()) {
+      Serial.println(F("Flash begin() failed"));
+      for (;;)
+        ;
+    }
+    if (!filesys.begin(&flash)) {
+      Serial.println(F("filesys begin() failed"));
+      for (;;)
+        ;
+    }
+  }
+#endif
+  //SD load successful
+  Serial.println(F("OK!"));
 
   Rtc.Begin();
   tft.init(135, 240);
@@ -220,70 +117,20 @@ void setup() {
   Wire.setWireTimeout(3000 /* us */, true /* reset_on_timeout */);
 #endif
 
-  RtcDateTime compiled = checkDateTimeErrors();
-  printDateTime(compiled);
-  Serial.println();
-
-  if (!Rtc.GetIsRunning()) {
-    if (!wasError("setup GetIsRunning")) {
-      Serial.println("RTC was not actively running, starting now");
-      Rtc.SetIsRunning(true);
-    }
-  }
-
-  RtcDateTime now = Rtc.GetDateTime();
-  if (!wasError("setup GetDateTime")) {
-    if (now < compiled) {
-      Serial.println("RTC is older than compile time, updating DateTime");
-      Rtc.SetDateTime(compiled);
-    } else if (now > compiled) {
-      Serial.println("RTC is newer than compile time, this is expected");
-    } else if (now == compiled) {
-      Serial.println("RTC is the same as compile time, while not expected all is still fine");
-    }
-  }
-
+  printDateTime(RtcDateTime(__DATE__, __TIME__));
   // never assume the Rtc was last configured by you, so
   // just clear them to your needed state
   Rtc.Enable32kHzPin(false);
-  wasError("setup Enable32kHzPin");
   Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
-  wasError("setup SetSquareWavePin");
-
-
-  //Check SD file system
-    Serial.print(F("Initializing filesystem..."));
-  #if defined (USE_SD_CARD)
-  if (!SD.begin(SD_CS, SD_SCK_MHZ(10))) {
-    Serial.println(F("SD begin() failed"));
-    for(;;);  //Fatal error, do not continue
-  }
-  #else {
-    if (!flash.begin()) {
-      Serial.println(F("Flash begin() failed"));
-      for(;;);
-    }
-    if (!filesys.begin(&flash)) {
-      Serial.println(F("filesys begin() failed"));
-      for(;;);
-    }
-  }
-  #endif
-
-  //Loading SD successfull here---
-  Serial.println(F("OK!"));
 }
 
-
-
 void loop() {
-  int currentDistance = sonar.ping_cm();
+  short currentDistance = sonar.ping_cm();
   unsigned long currentMillis = millis();
   bool isCorrectCode = false;
   int pinEntryCounter = 0;
   //Serial.println(currentDistance);  // DEBUG
 
-  checkDateTimeErrors();
   printDateInterval(currentMillis);
 
   //If ultrasonic sensor returns 0 (blocked or signal lost)
@@ -292,17 +139,13 @@ void loop() {
   }
   //Alarm is triggered
   else if (currentDistance < 30) {
-    if (tftCheckIfPrinted) {
-      printEnterPinPeriod();
-      delay(100);
-      tftCheckIfPrinted = false;
-    }
+    printEnterPinPeriod();
 
     // Save date when alarm triggered in array
     findArrayIndexForSavingTriggerAlarm();
     getElapsedAlarmTriggertime(currentMillis);
 
-    while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryCounter < 3) {  //You have 10s until the real alarm goes off to enter right pin
+    while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryCounter < 3) {  //10s to enter correct PIN
       getElapsedAlarmTriggertime(currentMillis);
       NewTone(SPEAKER_PIN, 500);
 
@@ -316,37 +159,32 @@ void loop() {
       }
     }
 
+    int32_t centerImageY = getImageDimensions();
+    printBMP(centerImageY);
+
     while (elapsedTime >= pinEntryTime || !isCorrectCode && pinEntryCounter >= 3) {
-      Serial.println("ALAAAARM");
-
-      if (tftCheckIfPrinted) {
-        printAlarmMessage();
-        delay(100);
-        tftCheckIfPrinted = false;
-      }
-
       playAlarm();
       //must enter master pin to shut off
     }
   } else {
     noNewTone(SPEAKER_PIN);
-    tftCheckIfPrinted = true;
   }
 }
 
-
-void getImageDimensions() {
+int32_t getImageDimensions() {
   //Load image and get its dimensions
+  int32_t width = 0;
+  int32_t height = 0;
+
   Serial.print(F("Loading image size: "));
   status = reader.bmpDimensions("/Arnold.bmp", &width, &height);  //Load image, set width, height to images.
   reader.printStatus(status);
 
   if (status == IMAGE_SUCCESS) {  //Find the center Y pixel to place image in center later.
     int32_t tftHeight = 240;
-    int32_t centerImageY = (tftHeight / 2) - (height / 2);
-    printBMP(centerImageY);
+    return (tftHeight / 2) - (height / 2);
   } else {
-    Serial.println("Failed to load image dimensions");
+    Serial.println(F("Failed to load image dimensions"));
   }
 }
 
@@ -358,11 +196,9 @@ void printBMP(int32_t centerY) {
   if (status == IMAGE_SUCCESS) {
     reader.printStatus(status);
   } else {
-    Serial.println("Failed to print image to TFT");
+    Serial.println(F("Failed to print image to TFT"));
   }
 }
-
-
 
 void enterPin() {
   int keyIn = 0;
@@ -381,14 +217,6 @@ void enterPin() {
 }
 
 bool validatePin(int enteredPin, int pinEntryCounter) {
-  Serial.print("Entered pin: ");
-  Serial.println(enteredPin);
-  Serial.println("ActualPin: ");
-  Serial.print(secretPin);
-  Serial.println();
-  Serial.print("counter: ");
-  Serial.println(pinEntryCounter);
-
   if (enteredPin == secretPin) {
     inputPin = "";
     return true;
@@ -411,12 +239,12 @@ void resetTftScreen(uint16_t color) {
 
 void printEnterPinPeriod() {
   tft.setTextColor(ST77XX_WHITE);
-  tft.print("Alarm triggered. Enter PIN");
+  tft.print("Enter PIN");
 }
 
 void printAlarmMessage() {
   tft.setTextColor(ST77XX_RED);
-  tft.print("WARNING!!!!");
+  //tft.print("WARNING!!!!");
 }
 
 
@@ -436,10 +264,8 @@ void printDateInterval(unsigned long currentMillis) {
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
     RtcDateTime date = Rtc.GetDateTime();
 
-    if (!wasError("no errors")) {
-      previousTimeForDateAndTime = currentMillis;
-      printDateTime(date);
-    }
+    previousTimeForDateAndTime = currentMillis;
+    printDateTime(date);
   }
 }
 
@@ -477,12 +303,12 @@ void findArrayIndexForSavingTriggerAlarm() {
   while (foundNull && counter < 10) {
 
     if (alarmDates[counter][counter - counter] == NULL) {
-      Serial.println("Saved date: ");
+      //Serial.println("Saved date: ");
       saveTriggeredAlarmDate(counter);
       counter = 0;
       foundNull = false;
     }
-    Serial.println("No more nulls");
+    //Serial.println("No more nulls");
     counter++;
   }
 }
