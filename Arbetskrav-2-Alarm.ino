@@ -15,6 +15,12 @@
     Adafruit_ST7789 - https://github.com/adafruit/Adafruit-ST7735-Library (ST7789)
     SPI - https://github.com/arduino/ArduinoCore-avr/blob/master/libraries/SPI/src/SPI.h
 
+    ---Adafruit ImageReader Library---
+    #include <SdFat.h>                 // SD card & FAT filesystem library
+    #include <Adafruit_SPIFlash.h>     // SPI / QSPI flash library
+    #include <Adafruit_ImageReader.h>  // Image-reading functions
+    ---Adafruit ImageReader Library---
+
     Wire.h - 
     RtcD3221 -
 
@@ -47,6 +53,9 @@
 
 #include <Adafruit_GFX.h>  // Graphics
 #include <Adafruit_ST7789.h>
+#include <SdFat.h>                 // SD card & FAT filesystem library
+#include <Adafruit_SPIFlash.h>     // SPI / QSPI flash library
+#include <Adafruit_ImageReader.h>  // Image-reading functions
 #include <SPI.h>
 #include <NewPing.h>
 #include <NewTone.h>
@@ -56,10 +65,19 @@
 #include <RtcDS3231.h>
 //For normal hardware wire
 
-//IPS LCD-screen used with Arduino Uno
+//IPS LCD-screen used with Arduino Uno. Some code for reading SD-card taken from Adafruit ImageReader Library - BreakoutST7789-240x135.ino
 #define TFT_CS 10
 #define TFT_DC 8
 #define TFT_RST 9
+#define SD_CS 4    // SD card select pin
+
+#define USE_SD_CARD
+
+#if defined(USE_SD_CARD)
+SdFat32 SD;
+Adafruit_ImageReader reader(SD);
+#endif
+
 
 //RGB-LED
 #define LED_PIN 2
@@ -93,6 +111,10 @@ int keyValues[16] = {
 
 //Objects
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+int32_t width = 0;
+int32_t height = 0;
+ImageReturnCode status;   //Status from image-reading functions
+
 NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
 RtcDS3231<TwoWire> Rtc(Wire);
 
@@ -186,9 +208,11 @@ RtcDateTime checkDateTimeErrors() {
 
 void setup() {
   Serial.begin(115200);
+  while(!Serial);   //Wait till Serial starts
 
-  tft.init(135, 240);
   Rtc.Begin();
+  tft.init(135, 240);
+  tft.setRotation(0);
   resetTftScreen(ST77XX_BLACK);
   initAlarmDatesArray();
 
@@ -225,6 +249,29 @@ void setup() {
   wasError("setup Enable32kHzPin");
   Rtc.SetSquareWavePin(DS3231SquareWavePin_ModeNone);
   wasError("setup SetSquareWavePin");
+
+
+  //Check SD file system
+    Serial.print(F("Initializing filesystem..."));
+  #if defined (USE_SD_CARD)
+  if (!SD.begin(SD_CS, SD_SCK_MHZ(10))) {
+    Serial.println(F("SD begin() failed"));
+    for(;;);  //Fatal error, do not continue
+  }
+  #else {
+    if (!flash.begin()) {
+      Serial.println(F("Flash begin() failed"));
+      for(;;);
+    }
+    if (!filesys.begin(&flash)) {
+      Serial.println(F("filesys begin() failed"));
+      for(;;);
+    }
+  }
+  #endif
+
+  //Loading SD successfull here---
+  Serial.println(F("OK!"));
 }
 
 
@@ -286,6 +333,36 @@ void loop() {
     tftCheckIfPrinted = true;
   }
 }
+
+
+void getImageDimensions() {
+  //Load image and get its dimensions
+  Serial.print(F("Loading image size: "));
+  status = reader.bmpDimensions("/Arnold.bmp", &width, &height);  //Load image, set width, height to images.
+  reader.printStatus(status);
+
+  if (status == IMAGE_SUCCESS) {  //Find the center Y pixel to place image in center later.
+    int32_t tftHeight = 240;
+    int32_t centerImageY = (tftHeight / 2) - (height / 2);
+    printBMP(centerImageY);
+  } else {
+    Serial.println("Failed to load image dimensions");
+  }
+}
+
+void printBMP(int32_t centerY) {
+  //Now load the BMP
+  Serial.print(F("Loading Arnold.bmp to screen "));
+  status = reader.drawBMP("/Arnold.bmp", tft, 0, centerY);  //Load image to position 0,0 (top left);
+
+  if (status == IMAGE_SUCCESS) {
+    reader.printStatus(status);
+  } else {
+    Serial.println("Failed to print image to TFT");
+  }
+}
+
+
 
 void enterPin() {
   int keyIn = 0;
