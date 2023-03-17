@@ -8,10 +8,8 @@
 #include <SPI.h>
 #include <NewPing.h>
 #include <NewTone.h>
-//For normal hardware wire
 #include <Wire.h>  // must be included here so that Arduino library object file references work
 #include <RtcDS3231.h>
-
 
 //IPS LCD-screen with Arduino Uno. Some code taken from Adafruit ImageReader Library - BreakoutST7789-240x135
 #define TFT_CS 10
@@ -36,6 +34,11 @@ Adafruit_ImageReader reader(SD);
 const short alarmMelody[] = { 262, 196 };  // 2k resistor atm   NOTE_C4 = 262, COTE_G3 = 196 From pitches.h
 const short noteDuration = 250;
 
+Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+ImageReturnCode status;  //Status from image-reading functions
+NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
+RtcDS3231<TwoWire> Rtc(Wire);
+
 //Keypad
 const char keys[16] = {
   '1', '2', '3', 'A',
@@ -51,31 +54,25 @@ const short keyValues[16] = {
   726, 716, 704, 694
 };
 
-
-//Objects
-Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
-ImageReturnCode status;  //Status from image-reading functions
-
-NewPing sonar(TRIGGER_PIN, ECHO_PIN, ALARM_DISTANCE);
-RtcDS3231<TwoWire> Rtc(Wire);
-
-
+//Array for saving dates when alarm trigger
 const short MAX_NUM_OF_DATES = 5;
 const short DATE_LENGTH = 19;
 char alarmDates[MAX_NUM_OF_DATES][DATE_LENGTH];
-char dateString[20];
-short counter = 0;
+short alarmCounter = 0;
 
+//Countdown timer for how long you have to enter correct pin
 unsigned long timeWhenAlarmTriggered;
 unsigned long elapsedTime;
-const unsigned long pinEntryTime = 5000;  //should be 10 seconds
+const unsigned long pinEntryTime = 10000;
 
+//How often big alarm changes between two tones.
+unsigned long previousTimeForAlarm = 0;
 const unsigned long playAlarmInterval = 250;
 
+//Timer for how often date should be printed to TFT-screen
 unsigned long previousTimeForDateAndTime = 0;
-const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
-
-bool runErrorHandlingOnce = true;
+const unsigned long printDateAndTimeInterval = 5000;
+char dateString[20];
 
 int secretPinCode = 5555;
 int masterPinCode = 1111;
@@ -119,7 +116,6 @@ void setup() {
   Wire.setWireTimeout(3000 /* us */, true /* reset_on_timeout */);
 #endif
 
-  printDateTime(RtcDateTime(__DATE__, __TIME__));
   // never assume the Rtc was last configured by you, so
   // just clear them to your needed state
   Rtc.Enable32kHzPin(false);
@@ -130,10 +126,12 @@ void loop() {
   short currentDistance = sonar.ping_cm();
   unsigned long currentMillis = millis();
   bool isCorrectCode = false;
-  int pinEntryCounter = 0;
+  int pinEntryalarmCounter = 0;
   //Serial.println(currentDistance);  // DEBUG
 
+
   printDateInterval(currentMillis);
+  keypadButtonLetters();
 
   //If ultrasonic sensor returns 0 (blocked or signal lost)
   if (currentDistance <= IS_BLOCKED_DISTANCE) {
@@ -149,16 +147,16 @@ void loop() {
     int32_t centerImageY = getImageDimensions();
     printBMP(centerImageY);
 
-    while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryCounter < 3) {  //10s to enter correct PIN
+    while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryalarmCounter < 3) {  //10s to enter correct PIN
       getElapsedAlarmTriggertime(currentMillis);
       NewTone(SPEAKER_PIN, 500);
 
-      if (pinEntryCounter < 3) {          //3 tries to enter correct PIN
+      if (pinEntryalarmCounter < 3) {     //3 tries to enter correct PIN
         if (inputPinCode.length() < 4) {  //Can input 4 chars
           enterPin();
         } else {
           isCorrectCode = validatePin(inputPinCode.toInt(), secretPinCode);  //Check if input pin == correct pin
-          pinEntryCounter++;
+          pinEntryalarmCounter++;
         }
       }
     }
@@ -168,7 +166,8 @@ void loop() {
     }
 
     while (!isCorrectCode) {
-      playAlarm();
+      currentMillis = millis();
+      playAlarm(currentMillis);
 
       //must enter master pin to shut off
       if (inputPinCode.length() < 4) {  //Can input 4 chars
@@ -178,6 +177,17 @@ void loop() {
       }
     }
     noNewTone(SPEAKER_PIN);
+    resetTftScreen();
+  }
+}
+
+void keypadButtonLetters() {
+  int keyIn = 0;
+  keyIn = analogRead(A3);
+
+  if (keyIn >= 872 - 2 && keyIn <= 872 + 2) {  // Value 872 = A
+    printAlarmDatesToTFTScreen();
+  } else if (keyIn >= 803 - 2 && keyIn <= 803 + 2) {  //Value 803 = B
     resetTftScreen();
   }
 }
@@ -215,12 +225,11 @@ void getElapsedAlarmTriggertime(unsigned long currentMillis) {
 }
 
 int32_t getImageDimensions() {
-  //Load image and get its dimensions
   int32_t width = 0;
   int32_t height = 0;
 
   Serial.print(F("Loading image size: "));
-  status = reader.bmpDimensions("/Arnold.bmp", &width, &height);  //Load image, set width, height to images.
+  status = reader.bmpDimensions("/Arnold.bmp", &width, &height);  //Set width, height to images.
   reader.printStatus(status);
 
   if (status == IMAGE_SUCCESS) {  //Find the center Y pixel to place image in center later.
@@ -232,7 +241,6 @@ int32_t getImageDimensions() {
 }
 
 void printBMP(int32_t centerY) {
-  //Now load the BMP
   Serial.print(F("Loading Arnold.bmp to screen "));
   status = reader.drawBMP("/Arnold.bmp", tft, 0, centerY);  //Load image to position 0,0 (top left);
 
@@ -259,22 +267,17 @@ void printAlarmMessage() {
   //Set rocket launcher holes to red
 }
 
-
-#define countof(arr) (sizeof(arr) / sizeof(arr[0]))  //Macro to get number of elements in array
-
-void playAlarm() {
-  unsigned long now = millis();
-  unsigned long future = 250;
-
-  
-
-  for (int alarmNote = 0; alarmNote < countof(alarmMelody); alarmNote++) {
-    NewTone(SPEAKER_PIN, alarmMelody[alarmNote]);
-    delay(250);  //Bad idea as it locks everything else down by 180ms (here for entering pin). Have to try to use millis
+void playAlarm(unsigned long currentMillis) {
+  if (currentMillis - previousTimeForAlarm >= playAlarmInterval) {
+    previousTimeForAlarm = currentMillis;
+    NewTone(SPEAKER_PIN, 196);
+    //delay(250);  //Bad idea as it locks everything else down by 180ms (here for entering pin). Have to try to use millis
+  } else {
+    NewTone(SPEAKER_PIN, 262);
   }
 }
 
-//Should trigger something every x secounds
+//Print every x second
 void printDateInterval(unsigned long currentMillis) {
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
     RtcDateTime date = Rtc.GetDateTime();
@@ -283,6 +286,8 @@ void printDateInterval(unsigned long currentMillis) {
     printDateTime(date);
   }
 }
+
+#define countof(arr) (sizeof(arr) / sizeof(arr[0]))  //Macro to get number of elements in array
 
 void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
   resetTftScreen();
@@ -315,16 +320,16 @@ void initAlarmDatesArray() {  //Sets every first letter to char 9 in every index
 void findArrayIndexForSavingTriggerAlarm() {
   bool foundNull = true;
 
-  while (foundNull && counter < 10) {
+  while (foundNull && alarmCounter < 10) {
 
-    if (alarmDates[counter][counter - counter] == NULL) {
+    if (alarmDates[alarmCounter][alarmCounter - alarmCounter] == NULL) {
       //Serial.println("Saved date: ");
-      saveTriggeredAlarmDate(counter);
-      counter = 0;
+      saveTriggeredAlarmDate(alarmCounter);
+      alarmCounter = 0;
       foundNull = false;
     }
     //Serial.println("No more nulls");
-    counter++;
+    alarmCounter++;
   }
 }
 
@@ -334,5 +339,16 @@ void saveTriggeredAlarmDate(int i) {
   }
 }
 
-void printAlarmDates() {
+void printAlarmDatesToTFTScreen() {
+  int cursorCounter = 0;
+  resetTftScreen();
+
+  for (int i = 0; i < 10; i++) {
+    tft.setCursor(0, cursorCounter += 5);
+    for (int j = 0; j < 19; j++) {
+      if (alarmDates[i][j - j] != NULL) {
+        tft.print(alarmDates[i][j]);
+      }
+    }
+  }
 }
