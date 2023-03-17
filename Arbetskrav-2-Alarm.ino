@@ -37,14 +37,14 @@ const short alarmMelody[] = { 262, 196 };  // 2k resistor atm   NOTE_C4 = 262, C
 const short noteDuration = 250;
 
 //Keypad
-const char keys[16] PROGMEM = {
+const char keys[16] = {
   '1', '2', '3', 'A',
   '4', '5', '6', 'B',
   '7', '8', '9', 'C',
   '*', '0', '#', 'D'
 };
 
-const short keyValues[16] PROGMEM = {
+const short keyValues[16] = {
   924, 907, 889, 872,
   847, 833, 818, 803,
   782, 770, 757, 744,
@@ -68,16 +68,18 @@ short counter = 0;
 
 unsigned long timeWhenAlarmTriggered;
 unsigned long elapsedTime;
-const unsigned long pinEntryTime = 10000;  //should be 10 seconds
+const unsigned long pinEntryTime = 5000;  //should be 10 seconds
+
+const unsigned long playAlarmInterval = 250;
 
 unsigned long previousTimeForDateAndTime = 0;
 const unsigned long printDateAndTimeInterval = 5000;  //should be 10 seconds
 
 bool runErrorHandlingOnce = true;
 
-short secretPin = 5555;
-String inputPin = "";
-
+int secretPinCode = 5555;
+int masterPinCode = 1111;
+String inputPinCode = "";
 
 
 void setup() {
@@ -92,17 +94,17 @@ void setup() {
       ;  //Fatal error, do not continue
   }
 #else {
-    if (!flash.begin()) {
-      Serial.println(F("Flash begin() failed"));
-      for (;;)
-        ;
-    }
-    if (!filesys.begin(&flash)) {
-      Serial.println(F("filesys begin() failed"));
-      for (;;)
-        ;
-    }
+  if (!flash.begin()) {
+    Serial.println(F("Flash begin() failed"));
+    for (;;)
+      ;
   }
+  if (!filesys.begin(&flash)) {
+    Serial.println(F("filesys begin() failed"));
+    for (;;)
+      ;
+  }
+}
 #endif
   //SD load successful
   Serial.println(F("OK!"));
@@ -110,7 +112,7 @@ void setup() {
   Rtc.Begin();
   tft.init(135, 240);
   tft.setRotation(0);
-  resetTftScreen(ST77XX_BLACK);
+  resetTftScreen();
   initAlarmDatesArray();
 
 #if defined(WIRE_HAS_TIMEOUT)
@@ -144,31 +146,72 @@ void loop() {
     // Save date when alarm triggered in array
     findArrayIndexForSavingTriggerAlarm();
     getElapsedAlarmTriggertime(currentMillis);
+    int32_t centerImageY = getImageDimensions();
+    printBMP(centerImageY);
 
     while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryCounter < 3) {  //10s to enter correct PIN
       getElapsedAlarmTriggertime(currentMillis);
       NewTone(SPEAKER_PIN, 500);
 
-      if (pinEntryCounter < 3) {      //3 tries to enter correct PIN
-        if (inputPin.length() < 4) {  //Can input 4 chars
+      if (pinEntryCounter < 3) {          //3 tries to enter correct PIN
+        if (inputPinCode.length() < 4) {  //Can input 4 chars
           enterPin();
         } else {
-          isCorrectCode = validatePin(inputPin.toInt(), pinEntryCounter);  //Check if input pin == correct pin
+          isCorrectCode = validatePin(inputPinCode.toInt(), secretPinCode);  //Check if input pin == correct pin
           pinEntryCounter++;
         }
       }
     }
 
-    int32_t centerImageY = getImageDimensions();
-    printBMP(centerImageY);
-
-    while (elapsedTime >= pinEntryTime || !isCorrectCode && pinEntryCounter >= 3) {
-      playAlarm();
-      //must enter master pin to shut off
+    if (elapsedTime >= pinEntryTime) {
+      printAlarmMessage();  //RED RED RED RED
     }
-  } else {
+
+    while (!isCorrectCode) {
+      playAlarm();
+
+      //must enter master pin to shut off
+      if (inputPinCode.length() < 4) {  //Can input 4 chars
+        enterPin();
+      } else {
+        isCorrectCode = validatePin(inputPinCode.toInt(), masterPinCode);  //Check if input pin == correct pin
+      }
+    }
     noNewTone(SPEAKER_PIN);
+    resetTftScreen();
   }
+}
+
+void enterPin() {
+  int keyIn = 0;
+  int range = 2;
+
+  keyIn = analogRead(A3);
+
+  //Would probably be better with millis(). But using delay for now as it works. Although not optimal as holding the button or a long press adds more than one key-press
+  for (int i = 0; i < 16; i++) {
+    if (keyIn >= keyValues[i] - range && keyIn <= keyValues[i] + range) {
+      inputPinCode += keys[i];
+      delay(320);
+      Serial.println(inputPinCode);
+    }
+  }
+}
+
+bool validatePin(int enteredPin, int secret) {
+  if (enteredPin == secret) {
+    inputPinCode = "";
+    return true;
+  } else {
+    Serial.print("Wrong PIN");
+    inputPinCode = "";
+    return false;
+  }
+}
+
+void getElapsedAlarmTriggertime(unsigned long currentMillis) {
+  timeWhenAlarmTriggered = millis();
+  elapsedTime = timeWhenAlarmTriggered - currentMillis;
 }
 
 int32_t getImageDimensions() {
@@ -200,41 +243,10 @@ void printBMP(int32_t centerY) {
   }
 }
 
-void enterPin() {
-  int keyIn = 0;
-  int range = 2;
-
-  keyIn = analogRead(A3);
-
-  //Would probably be better with millis(). But using delay for now as it works. Although not optimal as holding the button or a long press adds more than one key-press
-  for (int i = 0; i < 16; i++) {
-    if (keyIn >= keyValues[i] - range && keyIn <= keyValues[i] + range) {
-      inputPin += keys[i];
-      delay(250);
-      Serial.println(inputPin);
-    }
-  }
-}
-
-bool validatePin(int enteredPin, int pinEntryCounter) {
-  if (enteredPin == secretPin) {
-    inputPin = "";
-    return true;
-  } else {
-    Serial.print("Wrong PIN");
-    inputPin = "";
-    return false;
-  }
-}
-
-void getElapsedAlarmTriggertime(unsigned long currentMillis) {
-  timeWhenAlarmTriggered = millis();
-  elapsedTime = timeWhenAlarmTriggered - currentMillis;
-}
-
-void resetTftScreen(uint16_t color) {
+void resetTftScreen() {
   tft.setCursor(0, 0);
-  tft.fillScreen(color);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.fillScreen(ST77XX_BLACK);
 }
 
 void printEnterPinPeriod() {
@@ -244,23 +256,26 @@ void printEnterPinPeriod() {
 
 void printAlarmMessage() {
   tft.setTextColor(ST77XX_RED);
-  //tft.print("WARNING!!!!");
+  //Set rocket launcher holes to red
 }
 
 
 #define countof(arr) (sizeof(arr) / sizeof(arr[0]))  //Macro to get number of elements in array
 
 void playAlarm() {
+  unsigned long now = millis();
+  unsigned long future = 250;
+
+  
+
   for (int alarmNote = 0; alarmNote < countof(alarmMelody); alarmNote++) {
     NewTone(SPEAKER_PIN, alarmMelody[alarmNote]);
-    delay(noteDuration);
+    delay(250);  //Bad idea as it locks everything else down by 180ms (here for entering pin). Have to try to use millis
   }
 }
 
 //Should trigger something every x secounds
 void printDateInterval(unsigned long currentMillis) {
-  unsigned long printTime = currentMillis - previousTimeForDateAndTime;
-
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
     RtcDateTime date = Rtc.GetDateTime();
 
@@ -270,7 +285,7 @@ void printDateInterval(unsigned long currentMillis) {
 }
 
 void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
-  resetTftScreen(ST77XX_BLACK);
+  resetTftScreen();
 
   //snprintf_P - Reads from flash memory (non-volatile), reduced cost. Function formats and stores a series of chars in array buffer. Accepts n arguments.
   //PSTR - Uses flash memory too (?) Only be used in functions (?)
