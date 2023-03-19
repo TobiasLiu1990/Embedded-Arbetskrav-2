@@ -1,5 +1,15 @@
 //Arbetskrav 2 - Alarmsystem
 
+/*
+  Components used:
+    Adafruit 240x135 1.14" IPS LCD-Screen
+    RTC ZS-042 (DS3231)
+    Membrane Switch Module 4x4 (Keypad)
+    Ultrasonic Sensor (HC-SR04)
+    Buzzer
+    330 ohm resistor
+*/
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <SdFat.h>                 // SD card & FAT filesystem library
@@ -31,7 +41,7 @@ Adafruit_ImageReader reader(SD);
 
 //Buzzer
 #define SPEAKER_PIN A0
-//const short alarmMelody[] = { 262, 196 };  // 330k resistor atm   NOTE_C4 = 262, COTE_G3 = 196 From pitches.h
+//const short alarmMelody[] = { 262, 196 };  // 330 resistor - NOTE_C4 = 262, COTE_G3 = 196 From pitches.h
 const short noteDuration = 250;
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
@@ -137,7 +147,7 @@ void loop() {
     NewTone(SPEAKER_PIN, 1200);
   }
   //Alarm is triggered
-  else if (currentDistance < 30) {
+  else if (currentDistance < 30) {    //Distance here can be changed depending on situation. Might need to change ALARM_DISTANCE in that case as well.
     printEnterPin();
 
     // Save date when alarm triggered in array
