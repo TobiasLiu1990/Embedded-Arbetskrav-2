@@ -31,7 +31,7 @@ Adafruit_ImageReader reader(SD);
 
 //Buzzer
 #define SPEAKER_PIN A0
-const short alarmMelody[] = { 262, 196 };  // 2k resistor atm   NOTE_C4 = 262, COTE_G3 = 196 From pitches.h
+//const short alarmMelody[] = { 262, 196 };  // 330k resistor atm   NOTE_C4 = 262, COTE_G3 = 196 From pitches.h
 const short noteDuration = 250;
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
@@ -129,7 +129,6 @@ void loop() {
   int pinEntryalarmCounter = 0;
   //Serial.println(currentDistance);  // DEBUG
 
-
   printDateInterval(currentMillis);
   keypadButtonLetters();
 
@@ -139,13 +138,11 @@ void loop() {
   }
   //Alarm is triggered
   else if (currentDistance < 30) {
-    printEnterPinPeriod();
+    printEnterPin();
 
     // Save date when alarm triggered in array
     findArrayIndexForSavingTriggerAlarm();
     getElapsedAlarmTriggertime(currentMillis);
-    int32_t centerImageY = getImageDimensions();
-    printBMP(centerImageY);
 
     while (elapsedTime < pinEntryTime && !isCorrectCode && pinEntryalarmCounter < 3) {  //10s to enter correct PIN
       getElapsedAlarmTriggertime(currentMillis);
@@ -155,25 +152,31 @@ void loop() {
         if (inputPinCode.length() < 4) {  //Can input 4 chars
           enterPin();
         } else {
-          isCorrectCode = validatePin(inputPinCode.toInt(), secretPinCode);  //Check if input pin == correct pin
+          isCorrectCode = validatePin(inputPinCode.toInt(), secretPinCode);
           pinEntryalarmCounter++;
         }
       }
     }
 
     if (elapsedTime >= pinEntryTime) {
-      printAlarmMessage();  //RED RED RED RED
+      String inputPinCode = "";  //Reset input if you input something but ran out of time.
+      resetTftScreen();
+
+      //Get center position in Y-axis and print image from SD
+      printAlarmWarning();
+      int32_t centerImageY = getImageDimensions();
+      printBMP(centerImageY);
     }
 
     while (!isCorrectCode) {
       currentMillis = millis();
-      playAlarm(currentMillis);
+      playAlarm(currentMillis);  //Sadly this part does not work properly. I tried to get it to jump between 2 tones with 250ms delay inbetween. It did work with millis in a for-loop, but delay wasnt good in this case.
 
       //must enter master pin to shut off
-      if (inputPinCode.length() < 4) {  //Can input 4 chars
+      if (inputPinCode.length() < 4) {
         enterPin();
       } else {
-        isCorrectCode = validatePin(inputPinCode.toInt(), masterPinCode);  //Check if input pin == correct pin
+        isCorrectCode = validatePin(inputPinCode.toInt(), masterPinCode);
       }
     }
     noNewTone(SPEAKER_PIN);
@@ -183,11 +186,12 @@ void loop() {
 
 void keypadButtonLetters() {
   int keyIn = 0;
+  int range = 2;
   keyIn = analogRead(A3);
 
-  if (keyIn >= 872 - 2 && keyIn <= 872 + 2) {  // Value 872 = A
+  if (keyIn >= 872 - range && keyIn <= 872 + range) {  // Value 872 = A
     printAlarmDatesToTFTScreen();
-  } else if (keyIn >= 803 - 2 && keyIn <= 803 + 2) {  //Value 803 = B
+  } else if (keyIn >= 803 - range && keyIn <= 803 + range) {  //Value 803 = B
     resetTftScreen();
   }
 }
@@ -195,10 +199,9 @@ void keypadButtonLetters() {
 void enterPin() {
   int keyIn = 0;
   int range = 2;
-
   keyIn = analogRead(A3);
 
-  //Would probably be better with millis(). But using delay for now as it works. Although not optimal as holding the button or a long press adds more than one key-press
+  //Would be better with millis(). But using delay for now as it works. Although not optimal as holding the button or a long press adds more than one key-press
   for (int i = 0; i < 16; i++) {
     if (keyIn >= keyValues[i] - range && keyIn <= keyValues[i] + range) {
       inputPinCode += keys[i];
@@ -232,7 +235,8 @@ int32_t getImageDimensions() {
   status = reader.bmpDimensions("/Arnold.bmp", &width, &height);  //Set width, height to images.
   reader.printStatus(status);
 
-  if (status == IMAGE_SUCCESS) {  //Find the center Y pixel to place image in center later.
+  //Find the center Y pixel to place image in center later.
+  if (status == IMAGE_SUCCESS) {
     int32_t tftHeight = 240;
     return (tftHeight / 2) - (height / 2);
   } else {
@@ -252,26 +256,31 @@ void printBMP(int32_t centerY) {
 }
 
 void resetTftScreen() {
-  tft.setCursor(0, 0);
   tft.setTextColor(ST77XX_WHITE);
   tft.fillScreen(ST77XX_BLACK);
+  tft.setTextSize(0);
+  tft.setCursor(0, 0);
 }
 
-void printEnterPinPeriod() {
-  tft.setTextColor(ST77XX_WHITE);
+void printEnterPin() {
+  tft.setTextSize(2);
+  tft.setCursor(15, 15);
   tft.print("Enter PIN");
 }
 
-void printAlarmMessage() {
+void printAlarmWarning() {
   tft.setTextColor(ST77XX_RED);
-  //Set rocket launcher holes to red
+  tft.setTextSize(3);
+  tft.setCursor(0, 20);
+  tft.print("WARNING");
 }
 
+//Used delay(250) first in a for-loop with the melody[]. But since it locks down everything by 250ms, it wasnt working well with detecting keypad entries.
+//Tried to get millis to work here but couldnt get it to work properly.
 void playAlarm(unsigned long currentMillis) {
   if (currentMillis - previousTimeForAlarm >= playAlarmInterval) {
     previousTimeForAlarm = currentMillis;
     NewTone(SPEAKER_PIN, 196);
-    //delay(250);  //Bad idea as it locks everything else down by 180ms (here for entering pin). Have to try to use millis
   } else {
     NewTone(SPEAKER_PIN, 262);
   }
@@ -281,7 +290,6 @@ void playAlarm(unsigned long currentMillis) {
 void printDateInterval(unsigned long currentMillis) {
   if (currentMillis - previousTimeForDateAndTime >= printDateAndTimeInterval) {
     RtcDateTime date = Rtc.GetDateTime();
-
     previousTimeForDateAndTime = currentMillis;
     printDateTime(date);
   }
@@ -291,10 +299,6 @@ void printDateInterval(unsigned long currentMillis) {
 
 void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple (Rtc by Makuna)
   resetTftScreen();
-
-  //snprintf_P - Reads from flash memory (non-volatile), reduced cost. Function formats and stores a series of chars in array buffer. Accepts n arguments.
-  //PSTR - Uses flash memory too (?) Only be used in functions (?)
-
   snprintf_P(dateString,                             //buffer
              countof(dateString),                    //max number of bytes (char), written to buffer
              PSTR("%02u/%02u/%04u %02u:%02u:%02u"),  //PSTR reads from flash mem. n (...) is for formating
@@ -304,8 +308,6 @@ void printDateTime(const RtcDateTime& date) {  //Example code from DS3231_Simple
              date.Hour(),
              date.Minute(),
              date.Second());
-  Serial.print(dateString);  //Remove later
-  Serial.println();          //DEBUG
   tft.print(dateString);
 }
 
@@ -339,12 +341,13 @@ void saveTriggeredAlarmDate(int i) {
   }
 }
 
+//Bug where it prints out weird things in the end, not sure why.
 void printAlarmDatesToTFTScreen() {
   int cursorCounter = 0;
   resetTftScreen();
 
   for (int i = 0; i < 10; i++) {
-    tft.setCursor(0, cursorCounter += 5);
+    tft.setCursor(0, cursorCounter += 10);
     for (int j = 0; j < 19; j++) {
       if (alarmDates[i][j - j] != NULL) {
         tft.print(alarmDates[i][j]);
